@@ -1,18 +1,15 @@
 use anyhow::{Context, Result};
 use async_walkdir::{Filtering, WalkDir};
-use futures::executor::block_on;
 use futures_lite::stream::StreamExt;
 use log::*;
 use std::sync::Arc;
+use std::thread;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, BufReader};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
-use tokio::task::JoinSet;
 
 pub async fn search_dir(directory: &'static str) -> Result<()> {
-    let tasks = Arc::new(Mutex::new(JoinSet::new()));
-
     let finished = Arc::new(Mutex::new(false));
     let thread_finished = finished.clone();
 
@@ -20,8 +17,7 @@ pub async fn search_dir(directory: &'static str) -> Result<()> {
     let thread_handle = handle.clone();
 
     let (tx, mut rx) = mpsc::channel(100);
-    let thread_tasks = tasks.clone();
-    let search_thread = tokio::task::spawn_blocking(move || {
+    let search_thread = thread::spawn(move || {
         thread_handle.block_on(async move {
             let mut counter = 0;
             let start = std::time::Instant::now();
@@ -40,14 +36,19 @@ pub async fn search_dir(directory: &'static str) -> Result<()> {
                 Filtering::Continue
             });
 
-            while let Some(Ok(entry)) = entries.next().await {
-                counter += 1;
-                let tx = tx.clone();
-                let entry_path = entry.path().display().to_string();
-                thread_tasks.lock().await.spawn(async move {
-                    let _ = check_file(&entry_path).await;
-                    tx.send(()).await.expect("Failed to send signal");
-                });
+            loop {
+                match entries.next().await {
+                    Some(Ok(entry)) => {
+                        counter += 1;
+                        let tx = tx.clone();
+                        let entry_path = entry.path().display().to_string();
+                        tx.send(entry_path).await.expect("Failed to send path");
+                    }
+                    Some(Err(_e)) => {
+                        // eprintln!("error: {}", e);
+                    }
+                    None => break,
+                }
             }
 
             let duration = start.elapsed();
@@ -60,17 +61,18 @@ pub async fn search_dir(directory: &'static str) -> Result<()> {
     let executor = tokio::task::spawn(async move {
         let start = std::time::Instant::now();
         while !*finished.lock().await {
-            rx.recv().await;
-            while tasks.lock().await.join_next().await.is_some() {
-                // Do nothing
+            while let Some(path) = rx.recv().await {
+                let _ = check_file(&path).await;
             }
         }
         let duration = start.elapsed();
         info!("Time taken to scan entries: {:?}", duration);
     });
 
-    search_thread.await.expect("Search thread panicked");
     executor.await.expect("Executor thread panicked");
+    info!("Started processing thread");
+    search_thread.join().expect("Search thread panicked");
+    info!("Started search thread");
 
     Ok(())
 }
