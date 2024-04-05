@@ -53,7 +53,7 @@ pub async fn check_file(filename: &str) -> Result<()> {
         .await
         .context("Could not open file")?;
     let length = metadata.len();
-    if metadata.is_dir() || length % 512 != 0 || length < 1024 * 1024 * 10 {
+    if metadata.is_dir() || length % 512 != 0 || length < 1024 * 2 {
         return Ok(());
     }
     let mut file = File::open(filename)
