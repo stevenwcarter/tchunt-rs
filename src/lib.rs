@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use async_walkdir::WalkDir;
 use futures_lite::stream::StreamExt;
-use log::*;
 use tokio::fs::File;
+use tracing::*;
 
 pub mod entropy;
 
