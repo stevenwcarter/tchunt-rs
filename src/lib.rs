@@ -53,8 +53,9 @@ pub async fn search_dir(directory: &str) {
 }
 
 async fn check_file(path: &Path) -> Result<()> {
-    let file = File::open(path).await.context("Could not open file")?;
-    let metadata = file.metadata().await.context("Could not stat file")?;
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .context("Could not stat file")?;
     let length = metadata.len();
     // defaulting to 4MB size limit for now
     // TODO: update this to be configurable with clap
@@ -62,6 +63,7 @@ async fn check_file(path: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let file = File::open(path).await.context("Could not open file")?;
     let mut entropy = entropy::Entropy::new_from_file(file, length as usize).await?;
     let shannon = entropy
         .shannon()
