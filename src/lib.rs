@@ -56,9 +56,9 @@ async fn check_file(path: &Path) -> Result<()> {
     let file = File::open(path).await.context("Could not open file")?;
     let metadata = file.metadata().await.context("Could not stat file")?;
     let length = metadata.len();
-    // defaulting to 8MB size limit for now
+    // defaulting to 4MB size limit for now
     // TODO: update this to be configurable with clap
-    if metadata.is_dir() || length % 512 != 0 || length < 1024 * 8 {
+    if metadata.is_dir() || length % 512 != 0 || length < 1024 * 1024 * 4 {
         return Ok(());
     }
 
