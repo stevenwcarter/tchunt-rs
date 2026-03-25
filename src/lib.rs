@@ -25,7 +25,11 @@ pub async fn search_dir(directory: &str) {
                 if counter % 10000 == 0 {
                     trace!("Scanned {counter} files in {:?}", start.elapsed());
                 }
-                let permit = semaphore.clone().acquire_owned().await.unwrap();
+                let permit = semaphore
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .expect("semaphore is never closed");
                 let path = entry.path().to_path_buf();
                 tasks.spawn(async move {
                     let _permit = permit;
@@ -64,27 +68,22 @@ async fn check_file(path: &Path) -> Result<()> {
     }
 
     let file = File::open(path).await.context("Could not open file")?;
-    let mut entropy = entropy::Entropy::new_from_file(file, length as usize).await?;
+    let file_len = usize::try_from(length).context("file length overflows usize")?;
+    let mut entropy = entropy::Entropy::new_from_file(file, file_len).await?;
     let shannon = entropy
         .shannon()
         .await
         .context("could not get shannon entropy")?;
     if shannon < 7.985 {
-        // trace!("(entropy low) {} {}", shannon, path.display());
         return Ok(());
     }
 
-    let file_type = infer::get_from_path(path);
-
-    match file_type {
-        Ok(Some(found_type)) => {
+    match infer::get(entropy.head_bytes()) {
+        Some(found_type) => {
             trace!("(possible) {} {} {:?}", shannon, path.display(), found_type);
         }
-        Ok(None) => {
+        None => {
             println!("{} {}", shannon, path.display());
-        }
-        Err(e) => {
-            error!("Error checking file type for {:?}: {:?}", path, e);
         }
     }
 

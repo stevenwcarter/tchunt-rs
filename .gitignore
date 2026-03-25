@@ -2,3 +2,5 @@
 lcov*
 *.html
 *.local.json
+.claude/code-health.md
+.claude/code-health-archive-*.md

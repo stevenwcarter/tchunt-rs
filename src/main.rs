@@ -9,6 +9,19 @@ async fn main() -> Result<()> {
         eprintln!("Usage: {} <directory>", args[0]);
         std::process::exit(1);
     }
-    tchunt_rs::search_dir(&args[1]).await;
+    let path = &args[1];
+    let meta = tokio::fs::metadata(path).await;
+    match meta {
+        Ok(m) if m.is_dir() => {}
+        Ok(_) => {
+            eprintln!("Error: '{}' is not a directory", path);
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Error: cannot access '{}': {}", path, e);
+            std::process::exit(1);
+        }
+    }
+    tchunt_rs::search_dir(path).await;
     Ok(())
 }

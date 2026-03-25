@@ -5,6 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, BufReader};
 pub struct Entropy<R> {
     reader: BufReader<R>,
     length: usize,
+    head: Vec<u8>,
 }
 
 impl Entropy<tokio::fs::File> {
@@ -12,6 +13,7 @@ impl Entropy<tokio::fs::File> {
         Ok(Self {
             reader: BufReader::new(file),
             length,
+            head: Vec::new(),
         })
     }
 }
@@ -21,11 +23,18 @@ impl Entropy<Cursor<Vec<u8>>> {
         Ok(Self {
             reader: BufReader::new(cursor),
             length,
+            head: Vec::new(),
         })
     }
 }
 
 impl<R> Entropy<R> {
+    /// Returns the bytes read from the head of the file during `shannon()`.
+    /// Empty before `shannon()` is called.
+    pub fn head_bytes(&self) -> &[u8] {
+        &self.head
+    }
+
     pub async fn shannon(&mut self) -> Result<f64>
     where
         R: AsyncReadExt + AsyncSeekExt + Unpin,
@@ -39,6 +48,7 @@ impl<R> Entropy<R> {
 
         let mut buffer = vec![0u8; bytes_to_read];
         self.reader.read_exact(&mut buffer).await?;
+        self.head = buffer.clone();
         for byte in &buffer {
             counts[*byte as usize] += 1;
         }
@@ -86,7 +96,7 @@ mod tests {
     async fn it_calculates_entropy_for_high_entropy_sources() {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        let vec: Vec<u8> = (0..2000000).map(|_| rng.gen_range(0..255)).collect();
+        let vec: Vec<u8> = (0..2000000).map(|_| rng.gen_range(0..=255)).collect();
         let len = vec.len();
         let cursor = Cursor::new(vec);
 
