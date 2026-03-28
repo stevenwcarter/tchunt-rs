@@ -48,18 +48,19 @@ impl<R> Entropy<R> {
 
         let mut buffer = vec![0u8; bytes_to_read];
         self.reader.read_exact(&mut buffer).await?;
-        self.head = buffer.clone();
         for byte in &buffer {
             counts[*byte as usize] += 1;
         }
+        self.head = buffer;
 
         let tail_start = file_len.saturating_sub(bytes_to_read);
         if tail_start > bytes_to_read {
             self.reader
                 .seek(tokio::io::SeekFrom::Start(tail_start as u64))
                 .await?;
-            self.reader.read_exact(&mut buffer).await?;
-            for byte in &buffer {
+            let mut tail = vec![0u8; bytes_to_read];
+            self.reader.read_exact(&mut tail).await?;
+            for byte in &tail {
                 counts[*byte as usize] += 1;
             }
             bytes_read += bytes_to_read;
