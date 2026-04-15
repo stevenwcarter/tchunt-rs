@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::io::Cursor;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, BufReader};
 
 pub struct Entropy<R> {
@@ -8,23 +7,13 @@ pub struct Entropy<R> {
     head: Vec<u8>,
 }
 
-impl Entropy<tokio::fs::File> {
-    pub async fn new_from_file(file: tokio::fs::File, length: usize) -> Result<Self> {
-        Ok(Self {
-            reader: BufReader::new(file),
+impl<R: AsyncReadExt + AsyncSeekExt + Unpin> Entropy<R> {
+    pub fn new(reader: R, length: usize) -> Self {
+        Self {
+            reader: BufReader::new(reader),
             length,
             head: Vec::new(),
-        })
-    }
-}
-
-impl Entropy<Cursor<Vec<u8>>> {
-    pub async fn new_from_vec(cursor: Cursor<Vec<u8>>, length: usize) -> Result<Self> {
-        Ok(Self {
-            reader: BufReader::new(cursor),
-            length,
-            head: Vec::new(),
-        })
+        }
     }
 }
 
@@ -81,6 +70,7 @@ impl<R> Entropy<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[tokio::test]
     async fn it_calculates_entropy_correctly() {
@@ -88,7 +78,7 @@ mod tests {
         let len = vec.len();
         let cursor = Cursor::new(vec);
 
-        let mut entropy = Entropy::new_from_vec(cursor, len).await.unwrap();
+        let mut entropy = Entropy::new(cursor, len);
 
         assert_eq!(entropy.shannon().await.unwrap(), 0.0f64);
     }
@@ -101,7 +91,7 @@ mod tests {
         let len = vec.len();
         let cursor = Cursor::new(vec);
 
-        let mut entropy = Entropy::new_from_vec(cursor, len).await.unwrap();
+        let mut entropy = Entropy::new(cursor, len);
 
         assert!(entropy.shannon().await.unwrap() > 7.8);
     }
@@ -116,21 +106,21 @@ mod tests {
         vec.extend(vec![0xFFu8; size / 2]);
         let cursor = Cursor::new(vec);
 
-        let mut entropy = Entropy::new_from_vec(cursor, size).await.unwrap();
+        let mut entropy = Entropy::new(cursor, size);
         let result = entropy.shannon().await.unwrap();
 
         // Two equally-weighted symbols → exactly 1.0 bit of entropy
         assert!((result - 1.0).abs() < 1e-9, "Expected ~1.0, got {result}");
     }
 
-    /// Exercises new_from_file with the random65536 test fixture.
+    /// Exercises Entropy::new with the random65536 test fixture.
     #[tokio::test]
     async fn it_calculates_entropy_from_file() {
         let file = tokio::fs::File::open("test-resources/random65536")
             .await
             .expect("test-resources/random65536 must exist");
         let length = file.metadata().await.unwrap().len() as usize;
-        let mut entropy = Entropy::new_from_file(file, length).await.unwrap();
+        let mut entropy = Entropy::new(file, length);
 
         assert!(
             entropy.shannon().await.unwrap() > 7.0,

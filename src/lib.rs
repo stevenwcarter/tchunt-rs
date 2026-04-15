@@ -22,7 +22,7 @@ pub async fn search_dir(directory: &str) {
         match entries.next().await {
             Some(Ok(entry)) => {
                 counter += 1;
-                if counter % 10000 == 0 {
+                if counter.is_multiple_of(10000) {
                     trace!("Scanned {counter} files in {:?}", start.elapsed());
                 }
                 let permit = semaphore
@@ -61,15 +61,14 @@ async fn check_file(path: &Path) -> Result<()> {
         .await
         .context("Could not stat file")?;
     let length = metadata.len();
-    // defaulting to 4MB size limit for now
-    // TODO: update this to be configurable with clap
+    // files must be at least 4 MB and a multiple of 512 bytes
     if metadata.is_dir() || length % 512 != 0 || length < 1024 * 1024 * 4 {
         return Ok(());
     }
 
     let file = File::open(path).await.context("Could not open file")?;
     let file_len = usize::try_from(length).context("file length overflows usize")?;
-    let mut entropy = entropy::Entropy::new_from_file(file, file_len).await?;
+    let mut entropy = entropy::Entropy::new(file, file_len);
     let shannon = entropy
         .shannon()
         .await
@@ -83,6 +82,7 @@ async fn check_file(path: &Path) -> Result<()> {
             trace!("(possible) {} {} {:?}", shannon, path.display(), found_type);
         }
         None => {
+            // intentional: candidates go to stdout for piping; tracing diagnostics go to stderr
             println!("{} {}", shannon, path.display());
         }
     }
