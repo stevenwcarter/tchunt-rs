@@ -1,6 +1,10 @@
 use anyhow::Result;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, BufReader};
 
+/// Number of bytes sampled from the head (and tail) of a file for entropy calculation.
+/// 171072 = 167 × 1024, chosen to balance accuracy against I/O cost on large files.
+const SAMPLE_SIZE: usize = 171_072;
+
 pub struct Entropy<R> {
     reader: BufReader<R>,
     length: usize,
@@ -32,14 +36,18 @@ impl<R> Entropy<R> {
         let mut counts = [0usize; 256];
 
         let file_len: usize = self.length;
-        let bytes_to_read: usize = 171072.min(file_len);
+        let bytes_to_read: usize = SAMPLE_SIZE.min(file_len);
         let mut bytes_read = bytes_to_read;
+
+        let mut tally = |buf: &[u8]| {
+            for byte in buf {
+                counts[*byte as usize] += 1;
+            }
+        };
 
         let mut buffer = vec![0u8; bytes_to_read];
         self.reader.read_exact(&mut buffer).await?;
-        for byte in &buffer {
-            counts[*byte as usize] += 1;
-        }
+        tally(&buffer);
         self.head = buffer;
 
         let tail_start = file_len.saturating_sub(bytes_to_read);
@@ -49,9 +57,7 @@ impl<R> Entropy<R> {
                 .await?;
             let mut tail = vec![0u8; bytes_to_read];
             self.reader.read_exact(&mut tail).await?;
-            for byte in &tail {
-                counts[*byte as usize] += 1;
-            }
+            tally(&tail);
             bytes_read += bytes_to_read;
         }
 
@@ -101,7 +107,7 @@ mod tests {
     /// With the BufReader aliasing bug, this would return near 0.0 instead.
     #[tokio::test]
     async fn it_calculates_entropy_two_sample_path() {
-        let size = 4 * 171072;
+        let size = 4 * SAMPLE_SIZE;
         let mut vec = vec![0x00u8; size / 2];
         vec.extend(vec![0xFFu8; size / 2]);
         let cursor = Cursor::new(vec);

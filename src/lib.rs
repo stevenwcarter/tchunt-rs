@@ -10,7 +10,16 @@ use tracing::*;
 
 pub mod entropy;
 
+/// Files must be an exact multiple of this many bytes to be considered.
+const SIZE_MULTIPLE: u64 = 512;
+/// Minimum file size to be considered (4 MB).
+const MIN_FILE_SIZE: u64 = 4 * 1024 * 1024;
+/// Minimum Shannon entropy score to be considered a candidate.
+const MIN_ENTROPY: f64 = 7.985;
+
 pub async fn search_dir(directory: &str) {
+    // 64 permits: enough to saturate typical NVMe I/O queues without
+    // overwhelming HDD seek time or system file-descriptor limits.
     const MAX_CONCURRENT: usize = 64;
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
     let mut tasks: JoinSet<()> = JoinSet::new();
@@ -62,7 +71,7 @@ async fn check_file(path: &Path) -> Result<()> {
         .context("Could not stat file")?;
     let length = metadata.len();
     // files must be at least 4 MB and a multiple of 512 bytes
-    if metadata.is_dir() || length % 512 != 0 || length < 1024 * 1024 * 4 {
+    if metadata.is_dir() || length % SIZE_MULTIPLE != 0 || length < MIN_FILE_SIZE {
         return Ok(());
     }
 
@@ -73,7 +82,7 @@ async fn check_file(path: &Path) -> Result<()> {
         .shannon()
         .await
         .context("could not get shannon entropy")?;
-    if shannon < 7.985 {
+    if shannon < MIN_ENTROPY {
         return Ok(());
     }
 
